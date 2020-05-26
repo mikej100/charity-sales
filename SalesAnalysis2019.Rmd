@@ -1,0 +1,164 @@
+---
+title: "NineLives data analysis"
+output:
+  html_notebook: 
+    fig_width: 10
+    fig_height: 10
+---
+
+What should we encourage donors to bring to NineLives and what leave at home so that we can generate income and make best use of our storage space?
+
+This is the question we aim to address in this analysis.
+
+Price Sold vs Time to Sell
+---------------------------------------
+
+```{r echo=FALSE, message=FALSE, comment=FALSE, warning=FALSE, results=FALSE, fig.width=9, fig.height=7, fig.align= "center"}
+MINNUMBEROFITEMS <- 5 # Exclude articles descriptions with fewer  
+# DATAFILE <- "data2017-2019_Synthesized" # in subfolder /data
+MAXTIMETOSELL <- 500           # exclude items which exceed this time to sell.
+EXCLUDEDISCOUNTESCRIPTION <- "Kept by 9 Lives" # Exclude itmes with this discount.
+EXCLUDEDFURNITURETYPE <- "Miscellaneous" # Exclude this furniture type.
+
+
+library(tidyverse)
+library(plotly)
+
+plotData <- function (datafile, synth) {
+  dfRaw <- read_csv(paste0("./data/", datafile, ".csv"))
+  
+  if (synth) {
+    df <- mutate(dfRaw,
+                 TimeToSell = (DateSold - DateReceived)/24/3600 ) 
+  } else {
+    df <- mutate(dfRaw, TimeToSell = (DateSold - DateReceived))
+  }
+  
+  
+  # Count the dropped rows by reason (May double-count).
+  exceedMaxTime.count <-
+    filter(df, TimeToSell > MAXTIMETOSELL) %>% 
+    summarise(n = n())  %>% 
+    as.character()
+  
+  excludeByDiscountDescription.count <- 
+    filter(df, `Buyer Discount Description` == EXCLUDEDISCOUNTESCRIPTION ) %>%
+    summarise (n = n())  %>% 
+    as.character()
+  
+  exludedFurnitureType.count <- df %>%
+    filter(FurnitureType == EXCLUDEDFURNITURETYPE) %>%
+    summarise (n = n())  %>% 
+    as.character()
+  
+  
+  # Apply filters and do aggregations by Article Description.
+  artDescr.summaries <- df %>%
+    filter(`Buyer Discount Description` != EXCLUDEDISCOUNTESCRIPTION,
+           FurnitureType != EXCLUDEDFURNITURETYPE) %>%
+    group_by(ArticleDescription) %>%
+    summarize(timeToSell.median = median(TimeToSell),
+              priceSold.mean = mean(PriceSold, na.rm = TRUE),
+              furnitureType = first(FurnitureType),
+              count = n())
+  
+  artDescr.summaries.filtered <- artDescr.summaries %>%
+    filter (count >= MINNUMBEROFITEMS,
+            timeToSell.median <= MAXTIMETOSELL)
+  
+  outfileName <- paste0(datafile, "_aggregated.csv") 
+  write.csv(artDescr.summaries, file=paste0("./data/",outfileName))
+  
+  # Make interactive scatterplot.
+  pl1<- ggplot( data = artDescr.summaries.filtered) +
+    geom_point(mapping = aes(x = timeToSell.median, 
+                             y = priceSold.mean,
+                             size = count,
+                             color = furnitureType,
+                             text = paste(ArticleDescription,
+                                          "<br>£", round(priceSold.mean),
+                                          ", ", round(timeToSell.median), " days",
+                                          "<br> ", count, " items")
+    )) 
+ pl2 <-  ggplotly(pl1, tooltip="text")
+  
+  
+  
+  returnList <- list (
+    Plot = pl2,
+    Datafile = datafile,
+    ExceedMaxTime.count = exceedMaxTime.count,
+    ExcludeByDiscountDescription.count = excludeByDiscountDescription.count,
+    ExludedFurnitureType.count = exludedFurnitureType.count,
+    Outfile = outfileName
+  ) 
+}
+
+```
+
+### Real data
+
+```{r echo=FALSE, message=FALSE, comment=FALSE, warning=FALSE, results=FALSE, fig.width=9, fig.height=7, fig.align= "center"}
+
+ DATAFILE <- "data2017-2019" # in subfolder /data
+realPlot <- plotData(datafile = DATAFILE, synth=FALSE)
+realPlot$Plot
+```
+
+#### Data 
+Source data file: "`r realPlot$Datafile`", output file of aggregrated data: "`r  realPlot$Outfile`". 
+
+
+* Excluded items
+  * article descriptions with fewer than `r MINNUMBEROFITEMS` items
+  * article descriptions with median time to sell greater than `r MAXTIMETOSELL` 
+  * items retained by 9 Lives: `r realPlot$ExcludeByDiscountDescription.count` items
+  * furniture type `r EXCLUDEDFURNITURETYPE` : `r  realPlot$ExludedFurnitureType.count` items
+
+###Synthesized data
+
+```{r echo=FALSE, message=FALSE, comment=FALSE, warning=FALSE, results=FALSE, fig.width=9, fig.height=7, fig.align= "center"}
+ DATAFILE <- "data2017-2019_Synthesized" # in subfolder /data
+
+synthPlot <- plotData(datafile = "data2017-2019_Synthesized", synth=TRUE)
+
+synthPlot$Plot
+
+```
+
+
+
+#### Data 
+Source data file: "`r synthPlot$Datafile`", output file of aggregrated data: "`r  synthPlot$Outfile`". 
+
+
+* Excluded items
+  * article descriptions with fewer than `r MINNUMBEROFITEMS` items
+  * article descriptions with median time to sell greater than `r MAXTIMETOSELL` 
+  * items retained by 9 Lives: `r synthPlot$ExcludeByDiscountDescription.count` items
+  * furniture type `r EXCLUDEDFURNITURETYPE` : `r  synthPlot$ExludedFurnitureType.count` items
+
+BoxPlots
+--------
+
+### Real data
+
+```{r}
+  dfReal <- read_csv(paste0("./data/", "data2017-2019", ".csv"))
+
+ggplot(dfRaw, 
+       aes(x=FurnitureType, y=PriceSold))+
+  scale_y_log10()+
+  geom_boxplot()
+
+```
+### Synthetic data
+```{r}
+  dfSynth <- read_csv(paste0("./data/", "data2017-2019_Synthesized", ".csv")) %>%
+  filter(PriceSold > 1)
+
+ggplot(dfSynth, 
+       aes(x=FurnitureType, y=PriceSold))+
+  scale_y_log10()+
+  geom_boxplot()
+```
